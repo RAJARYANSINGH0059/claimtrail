@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ClaimTrail — Evidence &amp; Intake Assurance (demo)</title>
+  <meta name="description" content="Document-preparation and intake-QA demo. Synthetic data only.">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="topbar" id="topbar"></header>
+  <div class="banner" role="note">
+    <strong>DEMO DATA.</strong> Every person, provider, ID and amount is fictional. There is no real insurer, Paytm or payment integration.
+    ClaimTrail prepares documents and checks intake completeness. It does not decide claims, judge medical content or detect fraud.
+  </div>
+  <div id="alert" class="alert" role="alert" hidden></div>
+  <p id="live" class="statusline" role="status" aria-live="polite"></p>
+  <main id="main" tabindex="-1" aria-busy="true"><p class="muted">Loading the demo…</p></main>
+  <footer class="foot">
+    <p>Roles are a demo switch, not a login. Real authentication, tenant isolation and production controls are future work.</p>
+    <button type="button" class="btn btn-sm" id="reset-btn">Reset demo data</button>
+  </footer>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

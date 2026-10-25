@@ -1,0 +1,16 @@
+# dependencies and build output
+node_modules/
+dist/
+# secrets and local config (never commit)
+.env
+.env.*
+!.env.example
+# local demo state, uploads and dumps
+data/
+uploads/
+*.dump
+# logs, reports and editor/OS noise
+*.log
+test-results/
+playwright-report/
+.DS_Store
