@@ -141,7 +141,7 @@ function extractFields(doc) {
           const m = re.exec(line);
           if (m) {
             out[field] = { value: m[1].trim().replace(/[.,;]+$/, ''), page: page.n, excerpt: clip(line) };
-            if (page.ocr && page.ocr.method === 'ocr' && page.ocr.status === 'verify') out[field].ocrVerify = true;
+            if (page.ocr && page.ocr.status === 'verify') out[field].ocrVerify = true; // machine-read, confidence low or not supplied
             break;
           }
         }
@@ -291,6 +291,10 @@ function deriveStatuses({ requirements, documents, links, dups }) {
       return { ...common, status: 'unreadable', explanation: `${doc.name} p.${chosen.page} has too little extractable text; a clearer copy is needed.` };
     }
     if (!confirmed) {
+      const pg = doc.pages[chosen.page - 1];
+      if (pg && pg.ocr && pg.ocr.status === 'verify') {
+        return { ...common, status: 'needs_review', explanation: `Text on ${doc.name} p.${chosen.page} was machine-read without a confidence high enough to trust; a person must check the original and accept or reject the match.` };
+      }
       const rivals = sorted.slice(1).filter((l) => readableLink(l) &&
         (clusters.get(l.docId) || l.docId) !== (clusters.get(chosen.docId) || chosen.docId) &&
         chosen.confidence - l.confidence <= 0.15);
@@ -348,7 +352,7 @@ function runComparisons({ requirements, documents, statuses }) {
         const ocrNote = rv.ocrVerify || ov.ocrVerify;
         if (ocrNote && status === 'mismatch') status = 'needs_review';
         why = status === 'match' ? `${spec.label} agrees across both documents.`
-          : status === 'needs_review' && ocrNote ? `${spec.label} differs ("${rv.value}" vs "${ov.value}") but at least one value was read by OCR with low confidence; check the original image before treating it as a real difference.`
+          : status === 'needs_review' && ocrNote ? `${spec.label} differs ("${rv.value}" vs "${ov.value}") but at least one value was machine-read (OCR or cloud extraction) with low or unsupplied confidence; check the original document before treating it as a real difference.`
           : status === 'needs_review' ? `${spec.label} is similar but not identical ("${rv.value}" vs "${ov.value}"); a person should confirm they refer to the same person or value.`
           : status === 'mismatch' ? `${spec.label} differs ("${rv.value}" vs "${ov.value}"). This is a documentation inconsistency for review, not a determination of fraud or a coverage decision.`
           : `${spec.label} could not be parsed for comparison.`;

@@ -1,17 +1,18 @@
 # ClaimTrail — Test report
 
-Last updated after adding local OCR. Run date: 2026-10-24 · Node v22.22.0 · Linux · Chromium via Playwright (pre-installed in the build container).
+Last updated after Sarvam adapter, bilingual guidance and split deployment. Run date: 2026-10-25 · Node v22.22.0 · Linux · Chromium via Playwright (pre-installed in the build container).
 Every result below comes from a command run in this session. Nothing is reported as passed unless it ran.
 
 ## Results summary
 
 | Command | Result | Notes |
 |---|---|---|
-| `npm test` | **63 / 63 pass**, 0 fail, 0 skipped | engine, store, HTTP and OCR suites (10 OCR tests) |
-| `CLAIMTRAIL_OCR=off npm test` | **58 pass, 0 fail, 5 skipped** | The 5 skips are the tests that need real OCR; shows graceful degradation without Tesseract |
-| `npm run check` (= `npm run build`) | **14 / 14 pass** | Includes a new step proving `src/ocr.js` only spawns `tesseract`/`pdftotext`/`pdftoppm`, with `shell:false` |
+| `npm test` | **139 / 139 pass**, 0 fail | engine 12, store 32, server 9, OCR 10, config 8, analysis 29, Sarvam 25 (mocked transport, no live calls), deploy/CORS/build/api-base 14 |
+| `CLAIMTRAIL_OCR=off npm test` | **134 pass, 0 fail, 5 skipped** | The 5 skips need real OCR |
+| `npm run check` | **15 / 15 pass** | Adds pins: only `src/providers/sarvam.js` may reach the network or name the vendor host/key header; `.mjs` modules parsed |
 | `npm run smoke` | **17 / 17 pass** | Real server process, full API loop, real restart, log inspected for document text |
 | `npm run ui-smoke` | **25 / 25 pass** | Chromium at desktop and 390 px mobile; new step uploads a real clean and a degraded scan through the UI; zero console errors, page errors, failed requests or 5xx |
+| `npm run ui-smoke:split` | **25 / 25 pass** | Static `dist/` on one origin, API on another with exact `FRONTEND_ORIGINS`. Negative control: a wrong origin makes it exit 1 (39 failed steps), so the test is not vacuous |
 | Ad-hoc red-team probe | **19 / 19 pass** | See below. Script was a throwaway and is not part of the repo |
 | `python3 scripts/build-deck.py` | wrote 7 slides | Rendered to PDF with LibreOffice and inspected visually: no overflow |
 
@@ -65,3 +66,12 @@ Path traversal (plain, `%2f`, `%2e`) refused · missing role → 401 · unknown 
 | 10 | All runnable tests pass | **Pass** (see table) |
 | 11 | README/demo script match implementation | **Pass** — walked via ui-smoke; re-read after final edits |
 | 12 | Honest final report | See `BUILD_STATUS.md` |
+
+## Not run (do not read as passed)
+
+| Item | Status |
+|---|---|
+| Live Sarvam call (`npm run sarvam:smoke`) | NOT RUN; per-page result shape unverified |
+| GitHub Actions workflow | NOT RUN (nothing pushed); local gates ran on Node 22 only, Node 20 untested |
+| Vercel build/deploy, Render deploy, `npm run deploy:smoke` against real URLs | NOT RUN (local equivalents only: dist build and a split-origin local run) |
+| Real Hindi review by a native speaker | NOT RUN; phrase maps are machine-checked for invariance only |

@@ -4,14 +4,24 @@
   "private": true,
   "description": "ClaimTrail - Evidence & Intake Assurance (hackathon MVP, synthetic demo data only)",
   "license": "UNLICENSED",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test test/*.test.js",
     "check": "node scripts/check.js",
-    "build": "node scripts/check.js",
+    "build": "node scripts/check.js && node scripts/build-dist.js",
     "smoke": "node scripts/smoke.js",
     "ui-smoke": "node scripts/ui-smoke.js",
-    "reset": "node scripts/reset.js"
+    "reset": "node scripts/reset.js",
+    "build:dist": "node scripts/build-dist.js",
+    "ui-smoke:split": "node scripts/ui-smoke.js --split",
+    "deploy:smoke": "node scripts/deployment-smoke.js",
+    "sarvam:smoke": "node scripts/sarvam-smoke.js",
+    "ci": "npm run check && npm test && npm run smoke && npm run ui-smoke && npm run ui-smoke:split"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
   }
 }

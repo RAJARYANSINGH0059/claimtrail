@@ -1,6 +1,13 @@
 'use strict';
 /** Pure builders for exports and the intake report. Exporting is NOT submission. */
 const MODE_NOTE = 'deterministic rules (no AI model used)';
+/** Truthful mode line: once a Sarvam-read document is in the packet, "no AI model used" would be false. */
+function modeNote(v) {
+  const n = v.documents.filter((d) => !d.supersededBy && d.extraction && d.extraction.kind === 'cloud').length;
+  return n
+    ? `deterministic rules decide every status, link and comparison; the text of ${n} document(s) was extracted by Sarvam Document AI (an external cloud service, after explicit consent) and is marked "verify against the original"`
+    : MODE_NOTE;
+}
 
 const cites = (ev) => (ev || []).map((e) => ({ document: e.docName, page: e.page, excerpt: e.excerpt || null }));
 const citeText = (ev) => (ev && ev.length ? ev.map((e) => `${e.docName} p.${e.page}`).join(' vs ') : 'no document (required evidence is absent)');
@@ -13,7 +20,7 @@ function buildManifest(v, at) {
   return {
     kind: 'claimtrail.packet-manifest', version: 1, generatedAt: at, demoData: true,
     notice: 'This manifest is a local evidence index. Exporting it is NOT a submission and NOT an acknowledgement.',
-    analysisMode: MODE_NOTE,
+    analysisMode: modeNote(v),
     case: { id: v.case.id, title: v.case.title, claimRef: v.case.claimRef, policyNo: v.case.policyNo, status: v.case.status, statusLabel: v.case.statusLabel, submissionProofOnFile: v.submissions.length > 0 },
     requirements: v.statuses.map((st) => {
       const r = reqs.get(st.reqId);
@@ -31,6 +38,7 @@ function buildManifest(v, at) {
     documents: v.documents.filter((d) => !d.supersededBy).map((d) => ({
       id: d.id, name: d.name, detectedType: d.classification.type, typeConfidence: d.classification.confidence, sha256: d.sha256, size: d.size,
       pages: d.pages.length, readablePages: d.pages.filter((p) => p.readable).length,
+      cloudExtraction: d.extraction && d.extraction.kind === 'cloud' ? { provider: 'Sarvam Document AI (external cloud service)', confidence: 'not supplied', note: 'Machine-read text; verify against the original document.' } : null,
       ocr: d.pages.some((p) => p.ocr && p.ocr.method === 'ocr') ? { pagesOcr: d.pages.filter((p) => p.ocr && p.ocr.method === 'ocr').length, lowConfidencePages: d.pages.filter((p) => p.ocr && (p.ocr.status === 'verify' || p.ocr.status === 'rejected_low_confidence')).length, note: 'Text read by local OCR (not an AI model); verify against the original image.' } : null,
       delivery: { status: d.delivery.status, ackRef: d.delivery.ackRef || null, proofSha256: d.delivery.proof ? d.delivery.proof.sha256 : null },
     })),
@@ -92,7 +100,7 @@ function buildReport(v, at, openBlocking) {
   return {
     kind: 'claimtrail.intake-report', version: 1, generatedAt: at, demoData: true,
     notice: '"Intake checks complete" means configured document checks passed. It is not a coverage decision, a claim approval, a clinical judgement or a fraud determination.',
-    analysisMode: MODE_NOTE,
+    analysisMode: modeNote(v),
     case: { id: v.case.id, claimRef: v.case.claimRef, status: v.case.status, statusLabel: v.case.statusLabel },
     outcome: {
       complete,

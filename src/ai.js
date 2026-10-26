@@ -39,10 +39,13 @@ function validateDraft(d) {
   return d;
 }
 
-const providerInfo = () => ({
+const providerInfo = ({ cloudDocuments = 0 } = {}) => ({
   mode: engine.MODE,
-  live: false,
-  note: 'Deterministic rules and fixed templates only. No external model or API was used; uploaded content never leaves this process. Images and PDFs may be read by local OCR software (Tesseract), which is not an AI model.',
+  live: cloudDocuments > 0,
+  cloudDocuments,
+  note: cloudDocuments > 0
+    ? `Deterministic rules decide statuses, links, comparisons and permissions. The text of ${cloudDocuments} document(s) was extracted by Sarvam Document AI (an external cloud service) after explicit consent; those values are marked "verify against original".`
+    : 'Deterministic rules and fixed templates only. No external model or API was used; uploaded content has not left this server. Images and PDFs may be read by local OCR software (Tesseract), which is not an AI model.',
 });
 
 const classify = (doc) => validateClassification(engine.classifyDocument(doc));

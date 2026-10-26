@@ -1,4 +1,5 @@
 import { h, chip, btn, fmtTime, table, row } from './ui.js';
+import { guidancePanel } from './cloud.js';
 import { guideSection, outcomePanel, stepper, nextActionBox, transitionsPanel, requirementsSection, documentsSection, findingsSection, comparisonSection, draftsSection } from './components.js';
 
 export function queueView(ctx) {
@@ -25,7 +26,7 @@ export function caseView(ctx) {
         h('div', {}, h('dt', {}, 'Insurer (fictional)'), h('dd', {}, c.insurer)),
         h('div', {}, h('dt', {}, 'Status'), h('dd', {}, h('strong', {}, c.statusLabel))),
         h('div', {}, h('dt', {}, 'Open blocking findings'), h('dd', {}, String(s.openBlockers))),
-        h('div', {}, h('dt', {}, 'Analysis mode'), h('dd', {}, snap.meta.ai.live ? 'live model' : 'deterministic rules (no AI model used)'))),
+        h('div', {}, h('dt', {}, 'Analysis mode'), h('dd', {}, snap.meta.ai.cloudDocuments > 0 ? `deterministic rules decide; the text of ${snap.meta.ai.cloudDocuments} document(s) was read by Sarvam Document AI (verify against the original)` : 'deterministic rules (no AI model used)'))),
       stepper(snap), nextActionBox(snap),
       h('div', { class: 'actions' },
         snap.can['checks.rerun'] ? btn('Re-run checks', () => ctx.act(() => ctx.api('POST', '/api/rerun'), 'Checks re-run.'), { fid: 'rerun' }) : null,
@@ -34,6 +35,7 @@ export function caseView(ctx) {
         btn('Download intake report (JSON)', () => ctx.download('/api/report?format=json', 'claimtrail-intake-report.json'), { fid: 'report-json' })),
       snap.lastCheck ? h('div', { class: 'check-result', role: 'status' }, h('h3', {}, 'Last re-run'),
         h('p', {}, `${fmtTime(snap.lastCheck.at)} · ${snap.lastCheck.diff.newlyOpen.length} new, ${snap.lastCheck.diff.resolved.length} resolved, ${snap.lastCheck.diff.stillOpen.length} still open · ${snap.lastCheck.openBlockers} blocking`)) : null),
+    guidancePanel(ctx),
     transitionsPanel(ctx),
     outcomePanel(ctx),
     findingsSection(ctx, { actions: true }),

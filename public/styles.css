@@ -155,3 +155,15 @@ dialog::backdrop { background: rgba(20, 30, 40, .55); }
 
 .rc { white-space: nowrap; overflow-wrap: normal; }
 td .btn, .actions .btn { overflow-wrap: normal; word-break: normal; }
+
+/* provider badge, consent, cloud boxes (v2) */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.badge-ai { font-size: .75rem; font-weight: 700; padding: 3px 8px; border-radius: 4px; border: 1px solid #b9c9ec; background: var(--info-bg); color: var(--info); }
+.badge-ai-sarvam_available { background: var(--warn-bg); color: var(--warn); border-color: #ecce8c; }
+.badge-ai-sarvam_used { background: #fde8ff; color: #5a1c6e; border-color: #e0b3ee; }
+.cloud-box { border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px; margin-top: 12px; background: #fbfcfd; }
+.consent { border: 2px solid var(--accent); border-radius: 6px; padding: 10px 12px; margin: 12px 0; background: #eef6f6; }
+.consent label { display: flex; gap: 8px; align-items: flex-start; font-weight: 600; }
+.consent input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
+.cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 720px) { .cols2 { grid-template-columns: 1fr; } }

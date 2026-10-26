@@ -22,7 +22,7 @@ const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
     }
   });
   await r.step('browser ES modules parse (public)', () => {
-    for (const f of walk('public', '.js')) {
+    for (const f of [...walk('public', '.js'), ...walk('public', '.mjs')]) {
       const out = spawnSync(process.execPath, ['--input-type=module', '--check'], { input: read(f), encoding: 'utf8' });
       if (out.status !== 0) throw new Error(`${f}: ${out.stderr}`);
     }
@@ -43,12 +43,26 @@ const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
     }
   });
   await r.step('source makes no outbound network calls (only server.js may use node:http, and only to listen)', () => {
-    for (const f of walk('src', '.js')) {
+    for (const f of [...walk('src', '.js'), ...walk(path.join('src', 'providers'), '.js')]) {
+      if (f === path.join('src', 'providers', 'sarvam.js')) continue; // pinned by the Sarvam boundary step below
       const s = read(f);
       const bad = /require\(['"]node:(https|net|dns|tls|dgram|child_process)['"]\)|\bfetch\(|XMLHttpRequest|require\(['"](axios|node-fetch|got)['"]\)/.exec(s);
       if (bad && !(f === path.join('src', 'ocr.js') && /child_process/.test(bad[0]))) throw new Error(`${f}: ${bad[0]}`);
       if (f !== path.join('src', 'server.js') && /require\(['"]node:http['"]\)/.test(s)) throw new Error(`${f} imports node:http`);
     }
+  });
+  await r.step('Sarvam network boundary: only src/providers/sarvam.js can reach the network, host and key header are confined to it', () => {
+    const sar = path.join('src', 'providers', 'sarvam.js');
+    for (const f of [...walk('src', '.js'), ...walk(path.join('src', 'providers'), '.js'), ...walk('public', '.js'), ...walk('public', '.mjs')]) {
+      if (f === sar) continue;
+      const s = read(f);
+      if (/api\.sarvam\.ai|api-subscription-key|globalThis\.fetch|SARVAM_API_KEY/.test(s) && !/^src[\\/](config|server)\.js$/.test(f) && !/^src[\\/]analysis\.js$/.test(f)) throw new Error(`${f} references the Sarvam host/key outside the provider`);
+      if (/^public[\\/]/.test(f) && /sarvam\.ai/i.test(s)) throw new Error(`${f}: frontend must never name the vendor host`);
+      if (/\bfetch\(/.test(s) && !/^public[\\/]/.test(f)) throw new Error(`${f} calls fetch outside the provider`);
+    }
+    const p = read(sar);
+    if (!/redirect:\s*'error'/.test(p)) throw new Error('provider must refuse redirects');
+    if ((p.match(/https?:\/\/[a-z0-9.-]+/gi) || []).some((u) => !/^https:\/\/api\.sarvam\.ai$/i.test(u) && !/^https?:\/\/(www\.)?docs\.sarvam\.ai$/i.test(u))) throw new Error('provider names a host other than api.sarvam.ai');
   });
   await r.step('OCR adapter only spawns tesseract/pdftotext/pdftoppm, with no shell and no network tools', () => {
     const s = read(path.join('src', 'ocr.js'));

@@ -1,3 +1,4 @@
+import { cloudAnalysisPanel } from './cloud.js';
 import { h, chip, fmtTime, short, kb, pct, btn, field, modal, errorBox, showFormError, readFileB64, textB64, table, row } from './ui.js';
 
 const FIELD_LABELS = { patientName: 'Patient name', policyNo: 'Policy number', claimRef: 'Claim reference', admitDate: 'Admission date', dischargeDate: 'Discharge date', billTotal: 'Bill total', claimedAmount: 'Claimed amount' };
@@ -297,7 +298,8 @@ export function evidenceAdder(ctx) {
       h('button', { type: 'submit', class: 'btn' }, 'Upload'), err),
     h('h4', {}, 'Or use a fictional sample document'),
     h('ul', { class: 'plain samples' }, samples.map((s) => h('li', {}, btn(s.used ? `${s.title} (added)` : s.title, () => ctx.act(() => ctx.api('POST', '/api/documents/sample', { sampleId: s.id }), `Added ${s.title}.`), { small: true, disabled: s.used, fid: `smp-${s.id}` }),
-      h('span', { class: 'hint' }, ` ${s.note}`)))));
+      h('span', { class: 'hint' }, ` ${s.note}`)))),
+    cloudAnalysisPanel(ctx));
 }
 
 export function documentsSection(ctx, { manage }) {
@@ -396,6 +398,7 @@ function ocrChip(p) {
   if (o.status === 'verify') return chip('needs_review', `OCR ${o.confidence}%: verify`);
   if (o.method === 'ocr' && o.status === 'ok') return chip('info', `OCR ${o.confidence}%`);
   if (o.method === 'pdf-text-layer') return chip('info', 'PDF text layer');
+  if (o.method === 'sarvam-document-ai') return chip('needs_review', 'Sarvam: verify');
   return null;
 }
 function ocrBanner(p) {
@@ -406,6 +409,7 @@ function ocrBanner(p) {
   if (o.status === 'rejected_low_confidence') return h('p', { class: 'hint' }, `Local OCR (${o.engine}) read this page with only ${o.confidence}% confidence, so its text was discarded and the page counts as unreadable. Upload a clearer copy.` + note);
   if (o.status === 'failed') return h('p', { class: 'hint' }, 'OCR failed on this page, so it counts as unreadable.' + note);
   if (o.method === 'pdf-text-layer') return h('p', { class: 'hint' }, 'Text taken from the PDF text layer (no OCR needed).' + note);
+  if (o.method === 'sarvam-document-ai') return h('p', { class: 'hint' }, 'Text extracted by Sarvam Document AI, an external cloud service, after explicit consent. This is machine-read text, not the source image; Sarvam supplied no confidence score. Verify amounts, IDs and names against the original. Differences found in this page are shown as "needs review", never as a hard mismatch.' + note);
   return h('p', { class: 'hint' }, `Text read by local OCR (${o.engine}), mean confidence ${o.confidence}%. ` + (o.status === 'verify' ? 'Confidence is low: verify every value against the original image. Differences found in this page are marked "needs review", not "mismatch". ' : 'OCR can still misread digits; verify amounts against the original. ') + 'No AI model was used.' + note);
 }
 function imageEmptyText(p) {

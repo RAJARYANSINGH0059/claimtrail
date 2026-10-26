@@ -12,13 +12,13 @@ const freePort = () => new Promise((resolve, reject) => {
   s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); });
 });
 
-async function startServer({ dataFile } = {}) {
+async function startServer({ dataFile, env = {} } = {}) {
   const port = await freePort();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claimtrail-smoke-'));
   const file = dataFile || path.join(dir, 'state.json');
   const logs = [];
   const spawnIt = () => {
-    const child = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], { env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', CLAIMTRAIL_DATA: file }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], { env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', CLAIMTRAIL_DATA: file, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     child.stdout.on('data', (d) => logs.push(String(d)));
     child.stderr.on('data', (d) => logs.push('[stderr] ' + d));
     return child;
@@ -41,6 +41,24 @@ async function startServer({ dataFile } = {}) {
   };
 }
 
+/** Tiny static file server for a built dist/ (stands in for Vercel in tests). Same MIME types a real static host sends. */
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml' };
+async function startStatic(dir, port) {
+  const http = require('node:http');
+  const root = path.resolve(dir);
+  const server = http.createServer((req, res) => {
+    const u = new URL(req.url, 'http://x');
+    const rel = u.pathname === '/' ? 'index.html' : decodeURIComponent(u.pathname).replace(/^\/+/, '');
+    const file = path.resolve(root, rel);
+    if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); return res.end('not found'); }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'X-Content-Type-Options': 'nosniff' });
+    fs.createReadStream(file).pipe(res);
+  });
+  const p = port || await freePort();
+  await new Promise((r) => server.listen(p, '127.0.0.1', r));
+  return { url: `http://127.0.0.1:${p}`, port: p, stop: () => new Promise((r) => server.close(r)) };
+}
+
 function reporter(title) {
   const results = [];
   const step = async (name, fn) => {
@@ -55,4 +73,4 @@ function reporter(title) {
   return { step, done, results };
 }
 
-module.exports = { startServer, reporter, freePort };
+module.exports = { startServer, startStatic, reporter, freePort };

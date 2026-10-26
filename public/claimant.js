@@ -1,4 +1,5 @@
 import { h, chip, btn, field, modal, errorBox, showFormError } from './ui.js';
+import { guidancePanel } from './cloud.js';
 import { guideSection, stepper, nextActionBox, transitionsPanel, requirementsSection, documentsSection, findingsSection, draftsSection } from './components.js';
 
 function extractDialog(ctx) {
@@ -36,6 +37,7 @@ export function claimantView(ctx) {
         h('h3', {}, 'Packet readiness ', snap.readiness.ready ? chip('match', 'Ready') : chip('mismatch', 'Not ready')),
         snap.readiness.blockers.length ? h('ul', {}, snap.readiness.blockers.map((b) => h('li', {}, b))) : h('p', {}, 'No readiness blockers.'),
         snap.readiness.warnings.length ? [h('p', { class: 'hint' }, 'Warnings (do not block, but intake will see them):'), h('ul', {}, snap.readiness.warnings.map((b) => h('li', {}, b)))] : null)),
+    guidancePanel(ctx),
     c.status === 'action_required' && latestCorrection ? h('section', { class: 'panel callout', 'aria-labelledby': 'h-corr' }, h('h2', { id: 'h-corr' }, 'Correction requested by the intake reviewer'),
       h('p', { class: 'muted' }, 'This is the reviewer’s draft request (demo mode: nothing was actually sent). Add corrected evidence below, then record the resubmission with proof.'),
       h('pre', { class: 'source' }, latestCorrection.body)) : null,

@@ -2,6 +2,11 @@ import { h, btn, modal } from './ui.js';
 import { claimantView } from './claimant.js';
 import { queueView, caseView, dashboardView } from './intake.js';
 import { auditView } from './components.js';
+import { apiUrl, configuredBase } from './api-base.mjs';
+
+let API_BASE = '', CONFIG_ERROR = null;
+try { API_BASE = configuredBase(); } catch (e) { CONFIG_ERROR = e; }
+const url = (path) => { if (CONFIG_ERROR) throw CONFIG_ERROR; return apiUrl(path, API_BASE); };
 
 const ROLE_KEY = 'claimtrail.role';
 let role = 'claimant';
@@ -21,7 +26,8 @@ async function api(method, path, body) {
   const opts = { method, headers };
   if (method === 'POST' || method === 'PATCH') { headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body === undefined ? {} : body); }
   let res;
-  try { res = await fetch(path, opts); } catch { throw Object.assign(new Error('Could not reach the local ClaimTrail server. Is it still running?'), { code: 'NETWORK' }); }
+  if (CONFIG_ERROR) throw Object.assign(new Error('The frontend is misconfigured: ' + CONFIG_ERROR.message), { code: 'CONFIG' });
+  try { res = await fetch(url(path), opts); } catch { throw Object.assign(new Error('Could not reach the ClaimTrail API' + (API_BASE ? ` at ${API_BASE}` : '') + '. It may be stopped, waking up, or blocking this site (CORS).'), { code: 'NETWORK' }); }
   if (!res.ok) {
     let e = { code: `HTTP_${res.status}`, message: `Request failed (${res.status}).` };
     try { e = (await res.json()).error || e; } catch { /* keep default */ }
@@ -47,12 +53,12 @@ async function act(fn, okMsg) {
 async function download(path, filename) {
   clearError();
   try {
-    const res = await fetch(path, { headers: { 'X-Role': ctx.role } });
+    const res = await fetch(url(path), { headers: { 'X-Role': ctx.role } });
     if (!res.ok) { let e = { message: `Download failed (${res.status}).` }; try { e = (await res.json()).error; } catch { /* default */ } throw Object.assign(new Error(e.message), { details: e.details }); }
-    const url = URL.createObjectURL(await res.blob());
-    const a = h('a', { href: url, download: filename });
+    const blobUrl = URL.createObjectURL(await res.blob());
+    const a = h('a', { href: blobUrl, download: filename });
     document.body.append(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1500);
     await refresh(`Downloaded ${filename}. This file is a local export, not a submission.`);
   } catch (e) { fail(e); }
 }
@@ -84,10 +90,18 @@ function switchRole(next) {
   else location.hash = DEFAULT[next];
 }
 
+function aiBadge() {
+  const ai = ctx.snap && ctx.snap.meta && ctx.snap.meta.aiProvider;
+  if (!ai) return null;
+  // Honest mode label: "Sarvam analysis used" appears only after a Sarvam result was actually added to the packet.
+  return h('span', { class: `badge-ai badge-ai-${ai.badge}`, 'data-fid': 'ai-badge', title: ai.message }, h('span', { class: 'sr-only' }, 'AI mode: '), ai.badgeLabel);
+}
+
 function renderHeader(route) {
   $('topbar').replaceChildren(
     h('div', { class: 'brand' }, h('span', { class: 'logo', 'aria-hidden': 'true' }, '◈'), h('span', { class: 'brand-name' }, 'ClaimTrail'), h('span', { class: 'brand-sub' }, 'Evidence & Intake Assurance')),
     h('span', { class: 'badge-demo' }, 'DEMO DATA'),
+    aiBadge(),
     h('div', { class: 'roles', role: 'group', 'aria-label': 'Demo role switch. There is no real login in this MVP.' },
       ['claimant', 'reviewer'].map((r) => h('button', { type: 'button', class: 'role-btn' + (r === ctx.role ? ' active' : ''), 'aria-pressed': String(r === ctx.role), 'data-fid': `role-${r}`, onclick: () => switchRole(r) }, r === 'claimant' ? 'Claimant' : 'Intake reviewer'))),
     h('nav', { 'aria-label': 'Primary' }, ROUTES[ctx.role].map(([href, label]) => h('a', { href, 'aria-current': href === route ? 'page' : null, 'data-fid': `nav-${href}` }, label))));

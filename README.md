@@ -78,7 +78,7 @@ A collapsible *Guided demo path* sits at the top of both views. Full script with
 
 **Not implemented / future work:** real authentication, tenant isolation, encryption at rest, rate limiting, audit-log tamper-proofing; handwriting, non-English and table-aware OCR, and image deskew/pre-processing; multi-case storage; live-model adapter (the adapter boundary and output validators exist, but **no model is called**); real insurer/TPA or Paytm integrations; localisation; a screen-reader audit.
 
-**AI honesty:** every result is produced by deterministic rules and fixed templates. The UI and API report `deterministic-rules` / `no AI model used`. Uploaded content never leaves the process.
+**AI honesty:** by default every result is produced by deterministic rules and fixed templates (`no AI model used`). Optionally, an operator can enable Sarvam Document AI (`AI_PROVIDER=sarvam`); a file is sent only after per-operation user consent, the result is a preview to verify, and the badge/exports say so once a Sarvam-read document is in the packet. See `docs/SARVAM_INTEGRATION.md`. Deploy: `docs/DEPLOYMENT.md`. Design: `docs/ARCHITECTURE.md`.
 
 ## Real OCR demo (optional, needs Tesseract + Poppler)
 

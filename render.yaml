@@ -1,0 +1,31 @@
+# Render Blueprint for the ClaimTrail API (schema checked against https://render.com/docs/blueprint-spec).
+# DEFAULT = free plan, EPHEMERAL state: the demo resets whenever the service restarts or redeploys.
+# For durable single-instance state see the commented "persistent disk" variant below (needs a PAID plan).
+# The same service also serves the UI, so it doubles as the Render-only monolithic fallback.
+services:
+  - type: web
+    name: claimtrail-api
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health/ready
+    autoDeployTrigger: commit
+    numInstances: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: AI_PROVIDER
+        value: rules            # switch to "sarvam" only after adding SARVAM_API_KEY as a secret in the dashboard
+      - key: FRONTEND_ORIGINS
+        sync: false             # exact origins, comma separated, e.g. https://claimtrail.vercel.app
+    # --- persistent disk variant (paid plan; blocks zero-downtime deploys and multi-instance scaling) ---
+    # plan: starter
+    # disk:
+    #   name: claimtrail-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
+    # and add:  - key: CLAIMTRAIL_DATA
+    #             value: /var/data/state.json

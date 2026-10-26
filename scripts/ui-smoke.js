@@ -8,17 +8,31 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const assert = require('node:assert/strict');
-const { startServer, reporter } = require('./lib');
+const os = require('node:os');
+const { startServer, startStatic, reporter, freePort } = require('./lib');
+const { buildDist } = require('./build-dist');
+
+const SPLIT = process.argv.includes('--split'); // frontend from dist/ on ANOTHER origin, API cross-origin (Vercel + Render shape)
 
 let pw;
-try { pw = require('playwright'); } catch { console.log('ui-smoke: NOT RUN (playwright is not installed). API smoke (npm run smoke) is the fallback.'); process.exit(2); }
+try { pw = require('playwright'); } catch {
+  if (process.env.CI) { console.error('ui-smoke: FAILED (playwright is not installed but CI=true: a missing browser test is a failure, not a pass).'); process.exit(1); }
+  console.log('ui-smoke: NOT RUN (playwright is not installed). API smoke (npm run smoke) is the fallback.'); process.exit(2);
+}
 
-const SHOTS = path.join(__dirname, '..', 'docs', 'screenshots');
-const r = reporter('ui-smoke (Chromium)');
+const SHOTS = SPLIT ? fs.mkdtempSync(path.join(os.tmpdir(), 'claimtrail-shots-')) : path.join(__dirname, '..', 'docs', 'screenshots'); // split runs never overwrite the documented screenshots
+const r = reporter(SPLIT ? 'ui-smoke split (Chromium, dist/ on another origin)' : 'ui-smoke (Chromium)');
 
 (async () => {
   fs.mkdirSync(SHOTS, { recursive: true });
-  const srv = await startServer();
+  let fe = null, distDir = null, app;
+  const srv = SPLIT ? await (async () => { const fp = await freePort(); fe = { port: fp }; return startServer({ env: { FRONTEND_ORIGINS: `http://127.0.0.1:${fp}` } }); })() : await startServer();
+  if (SPLIT) {
+    distDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claimtrail-dist-'));
+    await buildDist({ apiBase: srv.url, outDir: distDir });
+    fe = await startStatic(distDir, fe.port);
+    app = fe.url;
+  } else app = srv.url;
   const browser = await pw.chromium.launch();
   const problems = [];
   const watch = (page, tag) => {
@@ -41,7 +55,7 @@ const r = reporter('ui-smoke (Chromium)');
 
   try {
     await r.step('claimant workspace loads with DEMO DATA banner, requirements table and status', async () => {
-      await page.goto(srv.url + '/');
+      await page.goto(app + '/');
       await settle();
       assert.match(await page.locator('.banner').innerText(), /DEMO DATA/);
       assert.equal(await page.locator('h1').first().innerText(), 'Claim packet workspace');
@@ -187,7 +201,7 @@ const r = reporter('ui-smoke (Chromium)');
       assert.equal(await page.locator('main').innerText().then((t) => /Mark packet ready for review/.test(t)), true);
     });
     await r.step('keyboard: skip link is first, focus ring is visible, every control has an accessible name', async () => {
-      await page.goto(srv.url + '/'); await settle();
+      await page.goto(app + '/'); await settle();
       await page.keyboard.press('Tab');
       assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), 'Skip to main content');
       for (let i = 0; i < 4; i++) await page.keyboard.press('Tab');
@@ -205,7 +219,7 @@ const r = reporter('ui-smoke (Chromium)');
       assert.equal(empty, 0);
     });
     await r.step('upload error states are actionable (unsupported type, empty file)', async () => {
-      await page.goto(srv.url + '/'); await settle();
+      await page.goto(app + '/'); await settle();
       await page.locator('.adder input[type=file]').setInputFiles({ name: 'virus.exe', mimeType: 'application/octet-stream', buffer: Buffer.from('MZ') });
       await page.locator('.adder form button[type=submit]').click();
       await page.locator('.adder .form-error:not([hidden])').waitFor();
@@ -222,7 +236,7 @@ const r = reporter('ui-smoke (Chromium)');
     await r.step('real OCR in the browser: clean scan is read and labelled; degraded scan is rejected with a reason', async () => {
       const ocrLib = require('../src/ocr'); const nodeFs = require('node:fs'); const nodePath = require('node:path');
       const sample = (f) => nodeFs.readFileSync(nodePath.join(__dirname, '..', 'samples', f));
-      await page.goto(srv.url + '/'); await settle();
+      await page.goto(app + '/'); await settle();
       const upload = async (name, mimeType, buffer) => {
         await page.locator('.adder input[type=file]').setInputFiles({ name, mimeType, buffer });
         await page.locator('.adder form button[type=submit]').click();
@@ -259,7 +273,7 @@ const r = reporter('ui-smoke (Chromium)');
   const overflow = async () => m.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth, wide: [...document.querySelectorAll('main *')].filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1 && !el.closest('.table-wrap, pre, dialog, .stepper')).slice(0, 3).map((el) => el.tagName + '.' + el.className) }));
   try {
     await r.step('mobile 390px: claimant workspace has no horizontal overflow and tables stack', async () => {
-      await m.goto(srv.url + '/'); await m.waitForSelector('main:not([aria-busy="true"])'); await m.waitForTimeout(200);
+      await m.goto(app + '/'); await m.waitForSelector('main:not([aria-busy="true"])'); await m.waitForTimeout(200);
       const o = await overflow();
       assert.ok(o.sw <= o.iw + 1, `scrollWidth ${o.sw} > ${o.iw}`);
       assert.deepEqual(o.wide, []);
@@ -268,11 +282,11 @@ const r = reporter('ui-smoke (Chromium)');
     });
     await r.step('mobile 390px: reviewer case view and dashboard fit the screen', async () => {
       await m.locator('[data-fid="role-reviewer"]').click(); await m.waitForTimeout(250);
-      await m.goto(srv.url + '/#/intake/case'); await m.waitForTimeout(400);
+      await m.goto(app + '/#/intake/case'); await m.waitForTimeout(400);
       let o = await overflow();
       assert.ok(o.sw <= o.iw + 1, `case scrollWidth ${o.sw} > ${o.iw}`);
       await m.screenshot({ path: path.join(SHOTS, '06-reviewer-case-mobile.png') });
-      await m.goto(srv.url + '/#/dashboard'); await m.waitForTimeout(400);
+      await m.goto(app + '/#/dashboard'); await m.waitForTimeout(400);
       o = await overflow();
       assert.ok(o.sw <= o.iw + 1, `dashboard scrollWidth ${o.sw} > ${o.iw}`);
     });
@@ -293,5 +307,7 @@ const r = reporter('ui-smoke (Chromium)');
   });
   await browser.close();
   await srv.stop(); srv.cleanup();
+  if (fe && fe.stop) await fe.stop();
+  if (distDir) fs.rmSync(distDir, { recursive: true, force: true });
   process.exit(r.done());
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const engine = require('./engine');
 const ocr = require('./ocr');
+const i18n = require('./i18n');
 const ai = require('./ai');
 const life = require('./lifecycle');
 const fixtures = require('./fixtures');
@@ -309,7 +310,8 @@ class Store {
   }
 
   /* ---------- documents ---------- */
-  _parseUpload({ name, dataBase64 }) {
+  /** Validate name, extension, size and magic bytes; returns the raw bytes. No text extraction, no network. */
+  _readUpload({ name, dataBase64 }) {
     const fileName = sanitizeName(name);
     const ext = path.extname(fileName).toLowerCase();
     const spec = EXT[ext];
@@ -317,6 +319,18 @@ class Store {
     const buf = decodeBase64(dataBase64);
     if (buf.length === 0) throw new AppError(422, 'FILE_EMPTY', 'The file is empty.');
     if (buf.length > LIMITS.MAX_UPLOAD_BYTES) throw new AppError(413, 'FILE_TOO_LARGE', `The file is larger than the ${LIMITS.MAX_UPLOAD_BYTES / 1000} KB demo limit.`);
+    if (spec.kind === 'binary' && !spec.magic.every((b, i) => buf[i] === b)) throw new AppError(415, 'FILE_CONTENT_MISMATCH', `${fileName} does not look like a real ${ext} file.`);
+    return { fileName, ext, spec, buf };
+  }
+  /** Input check for the optional cloud analysis: binary documents only (PDF/PNG/JPG). */
+  prepareCloudInput(role, { name, dataBase64 } = {}) {
+    this._check(role, 'document.add');
+    const { fileName, ext, spec, buf } = this._readUpload({ name, dataBase64 });
+    if (spec.kind !== 'binary') throw new AppError(415, 'CLOUD_TYPE_UNSUPPORTED', 'Sarvam Document AI analyses PDF, PNG and JPG files. Text files are read locally without any cloud service.');
+    return { name: fileName, ext, mime: spec.mime, size: buf.length, sha256: engine.sha256(buf), bytes: buf };
+  }
+  _parseUpload({ name, dataBase64 }) {
+    const { fileName, ext, spec, buf } = this._readUpload({ name, dataBase64 });
     let pages;
     let extraction = { kind: 'text', ocrAvailable: false, engine: null, note: null };
     if (spec.kind === 'text') {
@@ -325,7 +339,6 @@ class Store {
       pages = text.split(PAGE_BREAK).map((t, i) => ({ n: i + 1, text: t.trim() }));
       if (pages.length > LIMITS.MAX_PAGES) throw new AppError(422, 'TOO_MANY_PAGES', `Limit is ${LIMITS.MAX_PAGES} pages per document.`);
     } else {
-      if (!spec.magic.every((b, i) => buf[i] === b)) throw new AppError(415, 'FILE_CONTENT_MISMATCH', `${fileName} does not look like a real ${ext} file.`);
       const res = ocr.extract(buf, ext, { maxPages: Math.min(ocr.MAX_PAGES, LIMITS.MAX_PAGES) });
       pages = res.pages;
       extraction = { kind: ext === '.pdf' ? 'pdf' : 'image', ocrAvailable: res.available, engine: res.available ? ocr.status().engine : null, note: res.note || null };
@@ -358,7 +371,7 @@ class Store {
       S.documents.push(doc);
       const seq = this._emit('document_added', role, `Document added: ${doc.name}`, {
         docId: doc.id, name: doc.name, sha256: doc.sha256.slice(0, 12), pages: doc.pages.length, detectedType: doc.classification.type, replaces: old ? old.id : null,
-        ocrPages: doc.pages.filter((p) => p.ocr && p.ocr.method === 'ocr').length, ocrRejected: doc.pages.filter((p) => p.ocr && p.ocr.status === 'rejected_low_confidence').length,
+        ocrPages: doc.pages.filter((p) => p.ocr && p.ocr.method === 'ocr').length, cloud: doc.extraction.kind === 'cloud', ocrRejected: doc.pages.filter((p) => p.ocr && p.ocr.status === 'rejected_low_confidence').length,
       });
       doc.addedSeq = seq;
       S.case.lastEvidenceChangeSeq = seq;
@@ -372,6 +385,55 @@ class Store {
   uploadDocument(role, { name, dataBase64, replaces } = {}) {
     this._check(role, 'document.add');
     return this._addDocRecord(role, this._parseUpload({ name, dataBase64 }), { replaces: replaces || null });
+  }
+
+  /**
+   * Add a document whose text was extracted by the optional cloud provider AFTER a person inspected and confirmed it.
+   * Goes through the same record path as every upload: deterministic classification, field extraction, duplicate
+   * detection and re-analysis all run; nothing here accepts a link or clears a blocker by itself.
+   */
+  addCloudDocument(role, { name, mime, size, sha256, pages, jobId, language, partial, note, replaces } = {}) {
+    this._check(role, 'document.add');
+    if (!Array.isArray(pages) || !pages.length || pages.length > LIMITS.MAX_PAGES) throw new AppError(422, 'CLOUD_RESULT_INVALID', 'The analysis result has no usable pages.');
+    const clean = pages.map((p, i) => {
+      if (!p || p.n !== i + 1 || typeof p.text !== 'string' || !p.ocr || p.ocr.method !== 'sarvam-document-ai' || p.ocr.status !== 'verify') throw new AppError(422, 'CLOUD_RESULT_INVALID', 'The analysis result is malformed and was not added.');
+      return { n: p.n, text: p.text.slice(0, 20000), ocr: { method: 'sarvam-document-ai', engine: 'Sarvam Document AI', confidence: null, status: 'verify', jobId: String(jobId).slice(0, 128), rawChars: p.text.length } };
+    });
+    const rec = {
+      name: sanitizeName(name), mime, size, sha256, pages: clean, source: 'upload',
+      extraction: { kind: 'cloud', provider: 'sarvam-document-ai', ocrAvailable: false, engine: 'Sarvam Document AI', jobId: String(jobId).slice(0, 128), language, partial: !!partial, note: note || null },
+    };
+    return this._addDocRecord(role, rec, { replaces: replaces || null });
+  }
+  /** Audit-only event for a cloud action. Carries ids, hashes and codes, never document text, keys or payloads. */
+  recordCloudEvent(role, type, data = {}) {
+    if (!['cloud_analysis_started', 'cloud_analysis_ready', 'cloud_analysis_failed', 'cloud_analysis_cancelled', 'cloud_translation_requested'].includes(type)) throw new Error('unknown cloud event');
+    const safe = {};
+    for (const [k, v] of Object.entries(data)) if (['string', 'number', 'boolean'].includes(typeof v)) safe[k] = typeof v === 'string' ? v.slice(0, 80) : v;
+    // Audit-only: append the event and persist. Deliberately NOT _atomic(): that would re-analyse the case and refresh
+    // finding timestamps, so even a failed cloud call would touch the evidence ledger.
+    if (!life.ROLES.includes(role)) throw new AppError(403, 'FORBIDDEN_ROLE', 'Unknown role.');
+    const seq = this._emit(type, role, `Cloud action: ${type.replace('cloud_', '').replace(/_/g, ' ')}`, safe);
+    this.save();
+    return seq;
+  }
+  cloudDocumentCount() { return this.activeDocs().filter((d) => d.extraction && d.extraction.kind === 'cloud').length; }
+  /** Fields found in not-yet-added pages, for inspection. Every value carries page + excerpt; money/ids are flagged. */
+  previewFields(pages) {
+    const f = engine.extractFields({ pages });
+    return Object.entries(f).map(([field, v]) => ({ field, label: FIELD_LABELS[field] || field, value: v.value, page: v.page, excerpt: v.excerpt, verify: /amount|total|policy|claim|ref|number|id/i.test(field) }));
+  }
+  /** English/Hindi guidance from the live case; original wording and canonical values are returned beside the translation. */
+  guidance(role, lang = 'en') {
+    this._check(role, 'state.view');
+    const v = this.view();
+    const docs = new Map(this.state.documents.map((d) => [d.id, d]));
+    const info = {
+      next: this.nextActionInfo(),
+      statuses: v.statuses.map((s) => ({ reqId: s.reqId, label: s.label, status: s.status, docName: s.docId && docs.get(s.docId) ? docs.get(s.docId).name : null, page: s.page })),
+      findings: this.findingsList().filter((f) => f.status === 'open').map((f) => ({ key: f.key, code: f.code, title: f.title, explanation: f.explanation, evidence: f.evidence, blocking: engine.isBlocking(f) })),
+    };
+    try { return i18n.buildGuidance(lang, info); } catch (e) { if (e.code === 'LANG_UNSUPPORTED') throw new AppError(422, 'LANG_UNSUPPORTED', `Supported languages: ${Object.keys(i18n.LANGS).join(', ')}.`); throw e; }
   }
 
   samples() {
@@ -642,25 +704,26 @@ class Store {
   }
 
   /* ---------- read models ---------- */
-  nextAction() {
+  /** Structured next action (key + count). nextAction() and the multilingual guidance both derive from it. */
+  nextActionInfo() {
     const s = this.status;
     const a = this.analysis();
     const blockers = this.openBlocking().length;
+    const unconfirmed = () => this.analysis().statuses.filter((st) => st.status === 'matched' && !this._reviewerConfirmed(st) && (this.state.requirements.find((r) => r.id === st.reqId) || {}).required).length;
     switch (s) {
-      case 'draft': return 'Claimant: start preparing the packet';
-      case 'preparing': return a.readiness.ready ? 'Claimant: mark the packet ready for review' : `Claimant: resolve ${a.readiness.blockers.length} readiness blocker(s)`;
-      case 'ready_for_review': return 'Claimant: record the submission with proof';
-      case 'submitted': return 'Reviewer: start intake review';
-      case 'intake_review': return blockers ? `Reviewer: work through ${blockers} open finding(s) or request corrections` : this._unconfirmedNote('Reviewer: mark intake checks complete');
-      case 'action_required': return 'Claimant: provide corrected evidence, then record the resubmission with proof';
-      case 'resubmitted': return blockers ? `Reviewer: ${blockers} finding(s) still open; resolve them or request further corrections` : this._unconfirmedNote('Reviewer: mark intake checks complete');
-      default: return 'None: configured intake checks passed (this is not a coverage decision)';
+      case 'draft': return { key: 'draft', n: 0 };
+      case 'preparing': return a.readiness.ready ? { key: 'preparing_ready', n: 0 } : { key: 'preparing_blocked', n: a.readiness.blockers.length };
+      case 'ready_for_review': return { key: 'ready_for_review', n: 0 };
+      case 'submitted': return { key: 'submitted', n: 0 };
+      case 'intake_review': { if (blockers) return { key: 'review_open', n: blockers }; const n = unconfirmed(); return n ? { key: 'review_unconfirmed', n } : { key: 'review_done', n: 0 }; }
+      case 'action_required': return { key: 'action_required', n: 0 };
+      case 'resubmitted': { if (blockers) return { key: 'resubmitted_open', n: blockers }; const n = unconfirmed(); return n ? { key: 'review_unconfirmed', n } : { key: 'review_done', n: 0 }; }
+      default: return { key: 'complete', n: 0 };
     }
   }
-
-  _unconfirmedNote(done) {
-    const n = this.analysis().statuses.filter((st) => st.status === 'matched' && !this._reviewerConfirmed(st) && (this.state.requirements.find((r) => r.id === st.reqId) || {}).required).length;
-    return n ? `Reviewer: confirm ${n} suggested match(es), then mark intake checks complete` : done;
+  nextAction() {
+    const { key, n } = this.nextActionInfo();
+    return i18n.NEXT[key].en(n);
   }
 
   summary() {
@@ -706,12 +769,15 @@ class Store {
       summary: this.summary(),
     };
   }
+  /** Read-only copy of the audit trail (append-only inside the running process). */
+  events() { return this.state.events.map((e) => ({ ...e })); }
+
   snapshot(role) {
     if (!life.ROLES.includes(role)) throw new AppError(403, 'FORBIDDEN_ROLE', 'Unknown role.');
     return {
       ...this.view(),
       role,
-      meta: { demoData: true, ai: ai.providerInfo(), generatedAt: this.now().toISOString(), startupNotice: this.startupNotice },
+      meta: { demoData: true, ai: ai.providerInfo({ cloudDocuments: this.cloudDocumentCount() }), generatedAt: this.now().toISOString(), startupNotice: this.startupNotice },
       lifecycle: { states: life.STATES.map(([id, label]) => ({ id, label })), current: this.status },
       transitions: this.transitionsFor(role),
       waitingOn: this.waitingOn(role),

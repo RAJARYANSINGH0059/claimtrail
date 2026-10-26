@@ -1,6 +1,6 @@
 # ClaimTrail — Build status
 
-**Date:** 2026-10-24 · **State:** working demo, all runnable checks pass · **Data:** synthetic only
+**Date:** 2026-10-25 · **State:** working demo, all runnable checks pass · **Data:** synthetic only
 
 ## Run it
 
@@ -12,10 +12,12 @@ cd claimtrail && npm start      # http://127.0.0.1:3000  (no install needed; Nod
 
 | Command | Result |
 |---|---|
-| `npm test` | 63/63 pass (58 pass + 5 skipped with `CLAIMTRAIL_OCR=off`) |
-| `npm run check` / `npm run build` | 14/14 pass |
+| `npm test` | 139/139 pass; with `CLAIMTRAIL_OCR=off` 134 pass + 5 skipped |
+| `npm run check` | 15/15 pass (`npm run build` = check + build:dist) |
 | `npm run smoke` | 17/17 pass |
 | `npm run ui-smoke` | 25/25 pass (Chromium, desktop + 390 px, includes real OCR upload) |
+| `npm run ui-smoke:split` | 25/25 pass (dist on one origin, API on another); fails as intended with a wrong `FRONTEND_ORIGINS` |
+| Live Sarvam smoke / GitHub Actions run / Render deploy / Vercel deploy | **NOT RUN** |
 | Red-team HTTP probe (throwaway script) | 19/19 pass |
 | `python3 scripts/build-deck.py` | `docs/ClaimTrail_pitch.pptx`, 7 slides, visually checked |
 
