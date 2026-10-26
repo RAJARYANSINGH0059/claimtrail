@@ -1,0 +1,43 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CI: "true"   # makes a missing browser test a FAILURE instead of "NOT RUN"
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install OCR tools (so the OCR tests really run)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr poppler-utils
+      - run: npm ci
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+      - run: npm run check
+      - run: npm test
+      - run: npm run smoke
+      - run: npm run ui-smoke
+      - run: npm run ui-smoke:split
+      - name: Build static frontend (dist/)
+        run: npm run build:dist
+        env:
+          CLAIMTRAIL_API_BASE_URL: https://claimtrail-api.example.com
+      - name: Upload screenshots on failure (synthetic data only)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-node${{ matrix.node }}
+          path: docs/screenshots/
+          if-no-files-found: ignore
